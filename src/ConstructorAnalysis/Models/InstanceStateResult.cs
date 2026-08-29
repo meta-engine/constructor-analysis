@@ -1,11 +1,8 @@
-using System.Reflection;
-
 namespace ConstructorAnalysis.Models;
 
-internal class InstanceStateResult
+internal sealed class InstanceStateResult
 {
-    public object InstanceValue { get; set; }
-    public object[] Arguments { get; set; }
-    public List<PropertyInfo> MatchedProperties { get; set; }
+    public object? InstanceValue { get; init; }
+    public IReadOnlyList<SentinelArgument> Arguments { get; init; } = [];
+    public InstanceCreationFailure? Failure { get; init; }
 }
-

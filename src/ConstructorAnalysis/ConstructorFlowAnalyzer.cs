@@ -3,21 +3,43 @@ using ConstructorAnalysis.Models;
 
 namespace ConstructorAnalysis;
 
-public class ConstructorFlowAnalyzer
+public sealed class ConstructorFlowAnalyzer
 {
-    private readonly UniqueValueGenerator _valueGenerator;
+    private readonly ConstructorSelector _constructorSelector;
     private readonly InstanceStateCreator _instanceStateCreator;
+    private readonly PropertyFlowMatcher _propertyFlowMatcher;
+    private readonly DirectBaseFlowAnalyzer _directBaseFlowAnalyzer;
 
     public ConstructorFlowAnalyzer()
     {
-        _valueGenerator = new UniqueValueGenerator();
-        _instanceStateCreator = new InstanceStateCreator(_valueGenerator);
+        _constructorSelector = new ConstructorSelector();
+        var valueGenerator = new UniqueValueGenerator(
+            new SentinelValueFactory(),
+            new SentinelDistinctnessValidator());
+        _instanceStateCreator = new InstanceStateCreator(valueGenerator);
+        _propertyFlowMatcher = new PropertyFlowMatcher();
+        _directBaseFlowAnalyzer = new DirectBaseFlowAnalyzer(
+            _constructorSelector,
+            _instanceStateCreator,
+            _propertyFlowMatcher);
     }
 
-    public ConstructorFlowAnalysis Analyze(Type type)
+    internal ConstructorFlowAnalyzer(
+        ConstructorSelector constructorSelector,
+        InstanceStateCreator instanceStateCreator,
+        PropertyFlowMatcher propertyFlowMatcher,
+        DirectBaseFlowAnalyzer directBaseFlowAnalyzer)
     {
-        var constructor = GetConstructor(type);
-        if (constructor == null)
+        _constructorSelector = constructorSelector;
+        _instanceStateCreator = instanceStateCreator;
+        _propertyFlowMatcher = propertyFlowMatcher;
+        _directBaseFlowAnalyzer = directBaseFlowAnalyzer;
+    }
+
+    public ConstructorFlowAnalysis? Analyze(Type type)
+    {
+        var constructor = _constructorSelector.Select(type);
+        if (constructor is null)
         {
             return null;
         }
@@ -27,97 +49,22 @@ public class ConstructorFlowAnalyzer
 
     public ConstructorFlowAnalysis AnalyzeConstructor(Type type, ConstructorInfo constructor)
     {
-        var parameters = constructor.GetParameters();
-        var result = new ConstructorFlowAnalysis
+        var state = _instanceStateCreator.Execute(constructor);
+        var mappings = _propertyFlowMatcher.Match(type, state);
+        _directBaseFlowAnalyzer.Apply(type, mappings);
+
+        var properties = mappings
+            .SelectMany(mapping => mapping.AssignedProperties)
+            .Distinct()
+            .OrderBy(property => property.DeclaringType?.FullName, StringComparer.Ordinal)
+            .ThenBy(property => property.MetadataToken)
+            .ToArray();
+
+        return new ConstructorFlowAnalysis
         {
             Constructor = constructor,
-            ParameterMappings = new List<ParameterMapping>()
+            ParameterMappings = mappings,
+            PropertiesSetInConstructor = properties
         };
-
-        var propertiesSetInConstructor = new HashSet<PropertyInfo>();
-
-        // Analyze each parameter
-        for (var i = 0; i < parameters.Length; i++)
-        {
-            var parameter = parameters[i];
-            var instanceState = _instanceStateCreator.Execute(type, constructor, i);
-
-            var mapping = new ParameterMapping
-            {
-                Parameter = parameter,
-                AssignedProperties = instanceState.MatchedProperties
-            };
-
-            // Check if this parameter is passed to base class
-            if (HasBaseClass(type))
-            {
-                mapping.IsPassedToBase = IsParameterPassedToBase(
-                    type,
-                    i,
-                    instanceState.MatchedProperties);
-            }
-
-            result.ParameterMappings.Add(mapping);
-
-            foreach (var prop in instanceState.MatchedProperties)
-            {
-                propertiesSetInConstructor.Add(prop);
-            }
-        }
-
-        result.PropertiesSetInConstructor = propertiesSetInConstructor.ToList();
-
-        return result;
-    }
-
-    private bool IsParameterPassedToBase(Type type, int parameterIndex, List<PropertyInfo> matchedProperties)
-    {
-        if (!HasBaseClass(type))
-        {
-            return false;
-        }
-
-        var baseConstructor = GetConstructor(type.BaseType);
-        if (baseConstructor == null || baseConstructor.GetParameters().Length == 0)
-        {
-            return false;
-        }
-
-        // Check all base constructor parameters to see if any match our properties
-        var baseParameters = baseConstructor.GetParameters();
-        for (var i = 0; i < baseParameters.Length; i++)
-        {
-            var baseInstanceState = _instanceStateCreator.Execute(type.BaseType, baseConstructor, i);
-
-            // If any property matches between derived and base, parameter flows to base
-            var matchFound = matchedProperties.Any(derivedProp =>
-                baseInstanceState.MatchedProperties.Any(baseProp =>
-                    baseProp.Name == derivedProp.Name));
-
-            if (matchFound)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static ConstructorInfo GetConstructor(Type type)
-    {
-        // Get first non-default constructor, or default if that's all there is
-        var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-
-        return constructors
-            .OrderByDescending(c => c.GetParameters().Length)
-            .FirstOrDefault();
-    }
-
-    private static bool HasBaseClass(Type type)
-    {
-        return type.BaseType != null &&
-               type.BaseType != typeof(object) &&
-               type.BaseType != typeof(ValueType);
     }
 }
-
