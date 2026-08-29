@@ -9,8 +9,10 @@ metadata, not a claim of a new analysis theorem or algorithm.
 
 The canonical repository is `meta-engine/constructor-analysis`. It is currently
 private while the companion MetaEngine website articles await owner approval. This
-code is deliberately smaller than the production system: it demonstrates the
-technique without claiming implementation parity, compatibility, or shared internals.
+code is deliberately smaller than the production system: MetaEngine adds configuration
+metadata, dependency injection, target-parameter normalization, semantic constructor
+models, and renderer integration. Those bounded distinctions explain the reference's
+scope without claiming implementation parity, compatibility, or shared internals.
 
 ## Run it
 
@@ -74,10 +76,12 @@ ambiguous instead of guessing.
 Strings have one deliberately lower-confidence path. If strict ordinal equality finds
 nothing, a property containing the complete sentinel with ordinal case-insensitive
 comparison is reported with `Heuristic` confidence and
-`TransformedStringContainment` provenance. This can recognize transforms such as
-case changes, trimming around the sentinel, or surrounding concatenation. It cannot
-establish exact flow, and transforms that remove, split, reorder, truncate, encode, or
-hash the sentinel remain unmatched.
+`TransformedStringContainment` provenance. This can recognize case changes,
+surrounding concatenation, or other results that retain the complete sentinel but are
+not identical to it. A pure `Trim()` of the generated whitespace-free sentinel remains
+identical and therefore resolves through the exact path. Containment cannot establish
+exact flow, and transforms that remove, split, reorder, truncate, encode, or hash the
+sentinel remain unmatched.
 
 ### Parameter outcomes
 
@@ -98,10 +102,12 @@ non-default distinct values. These are typed results, not silent fallback behavi
 
 ## Direct-base candidates
 
-The analyzer also examines the immediate `BaseType` when it has exactly one accessible,
-non-parameterless constructor candidate. It probes that constructor separately and
-correlates derived and base observations by the identity of the reflected property
-(declaring type plus property name).
+The analyzer also examines the immediate `BaseType` only when it has exactly one
+accessible constructor in total. Parameterless constructors participate in that count;
+if the sole accessible constructor is parameterless, direct-base probing is skipped.
+Otherwise, the analyzer probes that one constructor separately and correlates derived
+and base observations by the identity of the reflected property (declaring type plus
+property name).
 
 Each `DirectBaseParameterMapping` exposes the candidate base parameter's ordered
 `ParameterIndex`, optional `ParameterName`, correlated property, `Heuristic`
