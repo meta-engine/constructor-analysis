@@ -54,9 +54,17 @@ static void AnalyzeType(ConstructorFlowAnalyzer analyzer, Type type)
             }
         }
 
-        if (mapping.IsPassedToBase)
+        foreach (var baseCandidate in mapping.DirectBaseMappings)
         {
-            Console.WriteLine("    ✓ Passed to base class constructor (super())");
+            Console.WriteLine(
+                $"    ? Correlates with direct-base parameter [{baseCandidate.ParameterIndex}] " +
+                $"{baseCandidate.ParameterName} ({baseCandidate.Confidence}, {baseCandidate.Outcome})");
+        }
+
+        if (mapping.DirectBaseOutcome == ConstructorAnalysis.Models.ParameterInferenceOutcome.Ambiguous &&
+            mapping.DirectBaseMappings.Count == 0)
+        {
+            Console.WriteLine($"    ? Direct-base flow is ambiguous: {mapping.DirectBaseDetail}");
         }
     }
 
@@ -67,4 +75,3 @@ static void AnalyzeType(ConstructorFlowAnalyzer analyzer, Type type)
         Console.WriteLine($"  - {declaringClass}.{prop.Name}");
     }
 }
-

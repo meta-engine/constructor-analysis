@@ -3,7 +3,7 @@ using ConstructorAnalysis.Models;
 
 namespace ConstructorAnalysis;
 
-internal class InstanceStateCreator
+internal sealed class InstanceStateCreator
 {
     private readonly UniqueValueGenerator _valueGenerator;
 
@@ -12,77 +12,50 @@ internal class InstanceStateCreator
         _valueGenerator = valueGenerator;
     }
 
-    public InstanceStateResult Execute(Type type, ConstructorInfo constructor, int parameterIndex)
+    public InstanceStateResult Execute(ConstructorInfo constructor)
     {
         var parameters = constructor.GetParameters();
-        var typeArguments = new object[parameters.Length];
+        var arguments = _valueGenerator.CreateArguments(parameters);
 
-        // Create arguments: unique value at parameterIndex, defaults elsewhere
-        for (var j = 0; j < typeArguments.Length; j++)
+        try
         {
-            var parameterType = parameters[j].ParameterType;
-            var useDefault = j != parameterIndex;
-            typeArguments[j] = _valueGenerator.CreateUniqueValue(parameterType, useDefault);
+            var instanceValue = constructor.Invoke(arguments.Select(argument => argument.Value).ToArray());
+            if (instanceValue is null)
+            {
+                return Failed(arguments, "Constructor invocation returned no instance.");
+            }
+
+            return new InstanceStateResult
+            {
+                InstanceValue = instanceValue,
+                Arguments = arguments
+            };
         }
+        catch (TargetInvocationException exception)
+        {
+            var cause = exception.InnerException ?? exception;
+            return Failed(arguments, $"Constructor invocation failed with {cause.GetType().Name}: {cause.Message}");
+        }
+        catch (ArgumentException exception)
+        {
+            return Failed(arguments, $"Constructor arguments could not be bound: {exception.Message}");
+        }
+        catch (MemberAccessException exception)
+        {
+            return Failed(arguments, $"Constructor could not be accessed: {exception.Message}");
+        }
+        catch (NotSupportedException exception)
+        {
+            return Failed(arguments, $"Constructor invocation is not supported: {exception.Message}");
+        }
+    }
 
-        // Instantiate with our sentinel values
-        // Use BindingFlags to access protected constructors
-        var instanceValue = Activator.CreateInstance(
-            type,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            null,
-            typeArguments,
-            null);
-
-        // Find which properties received the unique value at parameterIndex
-        var argumentType = parameters[parameterIndex].ParameterType;
-        var matchedProperties = GetMatchedProperties(type, instanceValue, argumentType, typeArguments[parameterIndex]);
-
+    private InstanceStateResult Failed(IReadOnlyList<SentinelArgument> arguments, string detail)
+    {
         return new InstanceStateResult
         {
-            InstanceValue = instanceValue,
-            Arguments = typeArguments,
-            MatchedProperties = new List<PropertyInfo>(matchedProperties)
+            Arguments = arguments,
+            Failure = new InstanceCreationFailure(detail)
         };
     }
-
-    private static IEnumerable<PropertyInfo> GetMatchedProperties(
-        Type type,
-        object instanceValue,
-        Type argumentType,
-        object argumentValue)
-    {
-        var list = new List<PropertyInfo>();
-
-        if (argumentValue == null || instanceValue == null)
-        {
-            // For interfaces with single property of that type, we can infer
-            if (argumentType.IsInterface &&
-                type.GetProperties().Count(x => x.DeclaringType == type && x.PropertyType == argumentType) == 1)
-            {
-                var matchedProperty = type.GetProperties()
-                    .Single(x => x.DeclaringType == type && x.PropertyType == argumentType);
-                list.Add(matchedProperty);
-            }
-            return list;
-        }
-
-        // Check each property to see if it has our unique value
-        foreach (var propertyInfo in type.GetProperties())
-        {
-            var propertyValue = propertyInfo.GetValue(instanceValue);
-            var propertyType = propertyInfo.PropertyType;
-
-            // Use reference equality for objects, value equality for value types
-            if (propertyType.IsValueType
-                ? argumentValue.Equals(propertyValue)
-                : argumentValue == propertyValue)
-            {
-                list.Add(propertyInfo);
-            }
-        }
-
-        return list;
-    }
 }
-
