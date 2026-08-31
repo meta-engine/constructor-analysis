@@ -16,7 +16,9 @@ scope without claiming implementation parity, compatibility, or shared internals
 
 ## Run it
 
-The repository targets .NET 8.
+Install the [.NET 10 SDK](https://dotnet.microsoft.com/download). The console
+app is the playground: clone, run, then change the examples under
+`src/Demo.ConsoleApp/Examples`.
 
 ```bash
 dotnet restore constructor-analysis.sln
@@ -128,9 +130,11 @@ disambiguate property shadowing and derived writes.
 
 ## Executable regression evidence
 
-The xUnit suite contains 22 executable cases: 17 `[Fact]` cases in
+The xUnit suite contains 24 executable cases: 19 `[Fact]` cases across
 [`ConstructorFlowAnalyzerTests.cs`](tests/ConstructorAnalysis.Tests/ConstructorFlowAnalyzerTests.cs)
-and five typed rows in the `[Theory]` from
+and
+[`DemoConsoleOutputTests.cs`](tests/ConstructorAnalysis.Tests/DemoConsoleOutputTests.cs),
+plus five typed rows in the `[Theory]` from
 [`ScalarSentinelFactoryTests.cs`](tests/ConstructorAnalysis.Tests/ScalarSentinelFactoryTests.cs).
 The exact scenarios are:
 
@@ -154,7 +158,10 @@ The exact scenarios are:
   `ReportsDerivedWriteCorrelationAsAHeuristicCandidate`;
 - selection and repeatability:
   `ReturnsNullWhenTypeHasNoConstructor`, `SelectsRichestConstructor`,
-  `RepeatedRunsHaveDeterministicResults`; and
+  `RepeatedRunsHaveDeterministicResults`;
+- console transcript locked to the article:
+  `UserTranscriptMatchesThePublishedConsoleContract`,
+  `EmployeeTranscriptReportsRenamedRoleLandingAndBaseCandidate`; and
 - narrow-domain exhaustion for `byte`, `sbyte`, `short`, `ushort`, and `char`:
   five rows of `ExhaustedNarrowScalarDoesNotRemainSupported`.
 
