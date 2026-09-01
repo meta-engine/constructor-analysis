@@ -44,6 +44,11 @@ foreach (var parameter in analysis!.ParameterMappings)
 }
 ```
 
+The console playground renders those same layers explicitly: the parameter outcome,
+each property's confidence and provenance, and any separate direct-base outcome and
+candidate. An exact property mapping is not downgraded when direct-base attribution is
+ambiguous.
+
 `Analyze(type)` selects the instance constructor with the most parameters, including
 non-public constructors; a metadata-token tie-break makes equal-sized choices
 deterministic. It does not combine results from every overload. Call
@@ -130,7 +135,7 @@ disambiguate property shadowing and derived writes.
 
 ## Executable regression evidence
 
-The xUnit suite contains 24 executable cases: 19 `[Fact]` cases across
+The xUnit suite contains 28 executable cases: 23 `[Fact]` cases across
 [`ConstructorFlowAnalyzerTests.cs`](tests/ConstructorAnalysis.Tests/ConstructorFlowAnalyzerTests.cs)
 and
 [`DemoConsoleOutputTests.cs`](tests/ConstructorAnalysis.Tests/DemoConsoleOutputTests.cs),
@@ -160,8 +165,12 @@ The exact scenarios are:
   `ReturnsNullWhenTypeHasNoConstructor`, `SelectsRichestConstructor`,
   `RepeatedRunsHaveDeterministicResults`;
 - console transcript locked to the article:
-  `UserTranscriptMatchesThePublishedConsoleContract`,
-  `EmployeeTranscriptReportsRenamedRoleLandingAndBaseCandidate`; and
+  `UserTranscriptExposesParameterPropertyAndDirectBaseOutcomes`,
+  `EmployeeTranscriptReportsRenamedRoleLandingAndBaseCandidate`,
+  `NonInferredParameterTranscriptReportsOutcomeAndDetail`,
+  `UnmatchedAndUnsupportedTranscriptsReportTheirTypedOutcomes`,
+  `InstantiationFailureTranscriptReportsParameterAndDirectBaseDetails`,
+  `CandidateLessDirectBaseAmbiguityReportsItsDetail`; and
 - narrow-domain exhaustion for `byte`, `sbyte`, `short`, `ushort`, and `char`:
   five rows of `ExhaustedNarrowScalarDoesNotRemainSupported`.
 
