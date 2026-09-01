@@ -8,7 +8,7 @@ namespace ConstructorAnalysis.Tests;
 public sealed class DemoConsoleOutputTests
 {
     [Fact]
-    public void UserTranscriptMatchesThePublishedConsoleContract()
+    public void UserTranscriptExposesParameterPropertyAndDirectBaseOutcomes()
     {
         var transcript = AnalysisPrinter.RenderType(new ConstructorFlowAnalyzer(), typeof(User));
 
@@ -21,11 +21,63 @@ public sealed class DemoConsoleOutputTests
         var transcript = AnalysisPrinter.RenderType(new ConstructorFlowAnalyzer(), typeof(Employee));
 
         Assert.Contains("Parameter: userRole (Role)", transcript);
-        Assert.Contains("→ Employee.AccessLevel", transcript);
-        Assert.Contains("→ Person.Role", transcript);
+        Assert.Contains("Parameter outcome: Inferred", transcript);
+        Assert.Contains("→ Employee.AccessLevel (Confidence: Exact; Provenance: ExactSentinel)", transcript);
+        Assert.Contains("→ Person.Role (Confidence: Exact; Provenance: ExactSentinel)", transcript);
         Assert.Contains(
-            "? Correlates with direct-base parameter [2] role (Heuristic, Ambiguous)",
+            "? Candidate parameter [2] role via Person.Role " +
+            "(Outcome: Ambiguous; Confidence: Heuristic; Provenance: DirectBasePropertyCorrelation)",
             transcript);
+    }
+
+    [Fact]
+    public void NonInferredParameterTranscriptReportsOutcomeAndDetail()
+    {
+        var transcript = AnalysisPrinter.RenderType(
+            new ConstructorFlowAnalyzer(),
+            typeof(SingleBooleanFixture));
+
+        Assert.Contains("Parameter outcome: Ambiguous", transcript);
+        Assert.Contains("Boolean flow requires a contrast probe", transcript);
+        Assert.DoesNotContain("Assigned to properties:", transcript);
+    }
+
+    [Fact]
+    public void UnmatchedAndUnsupportedTranscriptsReportTheirTypedOutcomes()
+    {
+        var analyzer = new ConstructorFlowAnalyzer();
+
+        var unmatched = AnalysisPrinter.RenderType(analyzer, typeof(UnmatchedFixture));
+        var unsupported = AnalysisPrinter.RenderType(analyzer, typeof(UnsupportedValueFixture));
+
+        Assert.Contains("Parameter outcome: Unmatched", unmatched);
+        Assert.Contains("No property preserved the generated sentinel", unmatched);
+        Assert.Contains("Parameter outcome: Unsupported", unsupported);
+        Assert.Contains("has no collision-resistant sentinel strategy", unsupported);
+    }
+
+    [Fact]
+    public void InstantiationFailureTranscriptReportsParameterAndDirectBaseDetails()
+    {
+        var transcript = AnalysisPrinter.RenderType(
+            new ConstructorFlowAnalyzer(),
+            typeof(ThrowingDerivedFixture));
+
+        Assert.Contains("Parameter outcome: InstantiationFailed", transcript);
+        Assert.Contains("Direct-base outcome: InstantiationFailed", transcript);
+        Assert.Contains("Expected fixture failure", transcript);
+    }
+
+    [Fact]
+    public void CandidateLessDirectBaseAmbiguityReportsItsDetail()
+    {
+        var transcript = AnalysisPrinter.RenderType(
+            new ConstructorFlowAnalyzer(),
+            typeof(OverloadedDerivedFixture));
+
+        Assert.Contains("Direct-base outcome: Ambiguous", transcript);
+        Assert.Contains("exposes multiple constructor overloads", transcript);
+        Assert.DoesNotContain("? Candidate parameter", transcript);
     }
 
     private const string UserTranscript =
@@ -40,19 +92,24 @@ public sealed class DemoConsoleOutputTests
         Parameter Flow Analysis:
 
           Parameter: email (String)
+            Parameter outcome: Inferred
             Assigned to properties:
-              → User.Email
+              → User.Email (Confidence: Exact; Provenance: ExactSentinel)
 
           Parameter: userId (Guid)
+            Parameter outcome: Inferred
             Assigned to properties:
-              → BaseEntity.Id
-            ? Correlates with direct-base parameter [0] id (Heuristic, Ambiguous)
+              → BaseEntity.Id (Confidence: Exact; Provenance: ExactSentinel)
+            Direct-base outcome: Ambiguous
+              ? Candidate parameter [0] id via BaseEntity.Id (Outcome: Ambiguous; Confidence: Heuristic; Provenance: DirectBasePropertyCorrelation)
 
           Parameter: userName (String)
+            Parameter outcome: Inferred
             Assigned to properties:
-              → BaseEntity.Name
-              → User.Username
-            ? Correlates with direct-base parameter [1] name (Heuristic, Ambiguous)
+              → BaseEntity.Name (Confidence: Exact; Provenance: ExactSentinel)
+              → User.Username (Confidence: Exact; Provenance: ExactSentinel)
+            Direct-base outcome: Ambiguous
+              ? Candidate parameter [1] name via BaseEntity.Name (Outcome: Ambiguous; Confidence: Heuristic; Provenance: DirectBasePropertyCorrelation)
 
         Properties set in constructor:
           - BaseEntity.Id

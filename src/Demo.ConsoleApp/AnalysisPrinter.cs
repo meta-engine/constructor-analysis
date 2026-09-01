@@ -73,28 +73,50 @@ public static class AnalysisPrinter
         {
             writer.WriteLine();
             writer.WriteLine($"  Parameter: {mapping.Parameter.Name} ({mapping.Parameter.ParameterType.Name})");
+            writer.WriteLine($"    Parameter outcome: {mapping.Outcome}");
 
-            if (mapping.AssignedProperties.Any())
+            if (mapping.Detail is not null)
+            {
+                writer.WriteLine($"    Detail: {mapping.Detail}");
+            }
+
+            if (mapping.PropertyMappings.Count > 0)
             {
                 writer.WriteLine("    Assigned to properties:");
-                foreach (var prop in mapping.AssignedProperties)
+                foreach (var propertyMapping in mapping.PropertyMappings)
                 {
-                    var declaringClass = prop.DeclaringType?.Name ?? "Unknown";
-                    writer.WriteLine($"      → {declaringClass}.{prop.Name}");
+                    var prop = propertyMapping.Property;
+                    var declaringClass = prop.DeclaringType?.Name ??
+                        throw new InvalidOperationException($"Property '{prop.Name}' has no declaring type.");
+                    writer.WriteLine(
+                        $"      → {declaringClass}.{prop.Name} " +
+                        $"(Confidence: {propertyMapping.Confidence}; " +
+                        $"Provenance: {propertyMapping.Provenance})");
                 }
+            }
+
+            if (mapping.DirectBaseOutcome != ParameterInferenceOutcome.Unmatched)
+            {
+                writer.WriteLine($"    Direct-base outcome: {mapping.DirectBaseOutcome}");
             }
 
             foreach (var baseCandidate in mapping.DirectBaseMappings)
             {
+                var declaringClass = baseCandidate.CorrelatedProperty.DeclaringType?.Name ??
+                    throw new InvalidOperationException(
+                        $"Property '{baseCandidate.CorrelatedProperty.Name}' has no declaring type.");
                 writer.WriteLine(
-                    $"    ? Correlates with direct-base parameter [{baseCandidate.ParameterIndex}] " +
-                    $"{baseCandidate.ParameterName} ({baseCandidate.Confidence}, {baseCandidate.Outcome})");
+                    $"      ? Candidate parameter [{baseCandidate.ParameterIndex}] " +
+                    $"{baseCandidate.ParameterName} via {declaringClass}.{baseCandidate.CorrelatedProperty.Name} " +
+                    $"(Outcome: {baseCandidate.Outcome}; Confidence: {baseCandidate.Confidence}; " +
+                    $"Provenance: {baseCandidate.Provenance})");
             }
 
-            if (mapping.DirectBaseOutcome == ParameterInferenceOutcome.Ambiguous &&
-                mapping.DirectBaseMappings.Count == 0)
+            if (mapping.DirectBaseOutcome != ParameterInferenceOutcome.Unmatched &&
+                mapping.DirectBaseMappings.Count == 0 &&
+                mapping.DirectBaseDetail is not null)
             {
-                writer.WriteLine($"    ? Direct-base flow is ambiguous: {mapping.DirectBaseDetail}");
+                writer.WriteLine($"      Detail: {mapping.DirectBaseDetail}");
             }
         }
 
@@ -102,7 +124,8 @@ public static class AnalysisPrinter
         writer.WriteLine("Properties set in constructor:");
         foreach (var prop in analysis.PropertiesSetInConstructor)
         {
-            var declaringClass = prop.DeclaringType?.Name ?? "Unknown";
+            var declaringClass = prop.DeclaringType?.Name ??
+                throw new InvalidOperationException($"Property '{prop.Name}' has no declaring type.");
             writer.WriteLine($"  - {declaringClass}.{prop.Name}");
         }
     }
