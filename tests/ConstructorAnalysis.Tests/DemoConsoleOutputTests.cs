@@ -16,7 +16,7 @@ public sealed class DemoConsoleOutputTests
     }
 
     [Fact]
-    public void EmployeeTranscriptReportsRenamedRoleLandingAndBaseCandidate()
+    public void EmployeeTranscriptReportsRenamedRoleLandingAndInferredBaseParameter()
     {
         var transcript = AnalysisPrinter.RenderType(new ConstructorFlowAnalyzer(), typeof(Employee));
 
@@ -24,8 +24,24 @@ public sealed class DemoConsoleOutputTests
         Assert.Contains("Parameter outcome: Inferred", transcript);
         Assert.Contains("→ Employee.AccessLevel (Confidence: Exact; Provenance: ExactSentinel)", transcript);
         Assert.Contains("→ Person.Role (Confidence: Exact; Provenance: ExactSentinel)", transcript);
+        Assert.Contains("Direct-base outcome: Inferred", transcript);
         Assert.Contains(
-            "? Candidate parameter [2] role via Person.Role " +
+            "→ Base parameter [2] role via Person.Role " +
+            "(Outcome: Inferred; Confidence: Exact; Provenance: ReadOnlyBaseSentinel)",
+            transcript);
+        Assert.DoesNotContain("? Candidate parameter", transcript);
+    }
+
+    [Fact]
+    public void WritableBaseTranscriptKeepsTheCandidateMarker()
+    {
+        var transcript = AnalysisPrinter.RenderType(
+            new ConstructorFlowAnalyzer(),
+            typeof(DerivedLocalWriteFixture));
+
+        Assert.Contains("Direct-base outcome: Ambiguous", transcript);
+        Assert.Contains(
+            "? Candidate parameter [0] value via WritableBaseFixture.Value " +
             "(Outcome: Ambiguous; Confidence: Heuristic; Provenance: DirectBasePropertyCorrelation)",
             transcript);
     }
@@ -100,16 +116,16 @@ public sealed class DemoConsoleOutputTests
             Parameter outcome: Inferred
             Assigned to properties:
               → BaseEntity.Id (Confidence: Exact; Provenance: ExactSentinel)
-            Direct-base outcome: Ambiguous
-              ? Candidate parameter [0] id via BaseEntity.Id (Outcome: Ambiguous; Confidence: Heuristic; Provenance: DirectBasePropertyCorrelation)
+            Direct-base outcome: Inferred
+              → Base parameter [0] id via BaseEntity.Id (Outcome: Inferred; Confidence: Exact; Provenance: ReadOnlyBaseSentinel)
 
           Parameter: userName (String)
             Parameter outcome: Inferred
             Assigned to properties:
               → BaseEntity.Name (Confidence: Exact; Provenance: ExactSentinel)
               → User.Username (Confidence: Exact; Provenance: ExactSentinel)
-            Direct-base outcome: Ambiguous
-              ? Candidate parameter [1] name via BaseEntity.Name (Outcome: Ambiguous; Confidence: Heuristic; Provenance: DirectBasePropertyCorrelation)
+            Direct-base outcome: Inferred
+              → Base parameter [1] name via BaseEntity.Name (Outcome: Inferred; Confidence: Exact; Provenance: ReadOnlyBaseSentinel)
 
         Properties set in constructor:
           - BaseEntity.Id

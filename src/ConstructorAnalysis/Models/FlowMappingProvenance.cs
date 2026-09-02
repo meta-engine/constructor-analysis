@@ -4,5 +4,6 @@ public enum FlowMappingProvenance
 {
     ExactSentinel,
     TransformedStringContainment,
-    DirectBasePropertyCorrelation
+    DirectBasePropertyCorrelation,
+    ReadOnlyBaseSentinel
 }
