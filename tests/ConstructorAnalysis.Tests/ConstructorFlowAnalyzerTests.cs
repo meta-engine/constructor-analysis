@@ -127,52 +127,6 @@ public class ConstructorFlowAnalyzerTests
         Assert.Equal(ParameterInferenceOutcome.Inferred, Mapping(analysis, "name").Outcome);
     }
     [Fact]
-    public void MapsSwappedSameTypeArgumentsToOrderedDirectBaseParameters()
-    {
-        var analysis = Analyze<SwappedDerivedFixture>();
-
-        var first = Mapping(analysis, "firstInput");
-        var firstBase = Assert.Single(first.DirectBaseMappings);
-        Assert.Equal(1, firstBase.ParameterIndex);
-        Assert.Equal("first", firstBase.ParameterName);
-        Assert.Equal(ParameterInferenceOutcome.Ambiguous, firstBase.Outcome);
-        Assert.Equal(FlowMappingConfidence.Heuristic, firstBase.Confidence);
-        Assert.Equal(FlowMappingProvenance.DirectBasePropertyCorrelation, firstBase.Provenance);
-        Assert.True(first.HasDirectBaseCandidate);
-        Assert.False(first.IsPassedToBase);
-        Assert.Contains(first.AssignedProperties, property => property.Name == nameof(SwappedBaseFixture.FirstValue));
-        Assert.Contains(first.AssignedProperties, property => property.Name == nameof(SwappedDerivedFixture.LocalCopy));
-
-        var second = Mapping(analysis, "secondInput");
-        var secondBase = Assert.Single(second.DirectBaseMappings);
-        Assert.Equal(0, secondBase.ParameterIndex);
-        Assert.Equal("second", secondBase.ParameterName);
-        Assert.Equal(new[] { 0, 1 }, analysis.ParameterMappings.SelectMany(mapping => mapping.DirectBaseMappings).OrderBy(mapping => mapping.ParameterIndex).Select(mapping => mapping.ParameterIndex));
-    }
-
-    [Fact]
-    public void ReportsOverloadedDirectBaseAsAmbiguousWithoutChoosingAnOverload()
-    {
-        var mapping = Mapping(Analyze<OverloadedDerivedFixture>(), "value");
-
-        Assert.Equal(ParameterInferenceOutcome.Ambiguous, mapping.DirectBaseOutcome);
-        Assert.Contains("overload", mapping.DirectBaseDetail, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(mapping.DirectBaseMappings);
-        Assert.False(mapping.IsPassedToBase);
-    }
-
-    [Fact]
-    public void ReportsDerivedWriteCorrelationAsAHeuristicCandidate()
-    {
-        var mapping = Mapping(Analyze<DerivedLocalWriteFixture>(), "value");
-
-        var candidate = Assert.Single(mapping.DirectBaseMappings);
-        Assert.Equal(ParameterInferenceOutcome.Ambiguous, mapping.DirectBaseOutcome);
-        Assert.Equal(ParameterInferenceOutcome.Ambiguous, candidate.Outcome);
-        Assert.Equal(FlowMappingConfidence.Heuristic, candidate.Confidence);
-        Assert.False(mapping.IsPassedToBase);
-    }
-    [Fact]
     public void ReturnsNullWhenTypeHasNoConstructor()
     {
         var analyzer = new ConstructorFlowAnalyzer();

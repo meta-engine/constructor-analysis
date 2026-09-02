@@ -8,15 +8,18 @@ internal sealed class DirectBaseFlowAnalyzer
     private readonly ConstructorSelector _constructorSelector;
     private readonly InstanceStateCreator _instanceStateCreator;
     private readonly PropertyFlowMatcher _propertyFlowMatcher;
+    private readonly DirectBaseCandidateFactory _candidateFactory;
 
     public DirectBaseFlowAnalyzer(
         ConstructorSelector constructorSelector,
         InstanceStateCreator instanceStateCreator,
-        PropertyFlowMatcher propertyFlowMatcher)
+        PropertyFlowMatcher propertyFlowMatcher,
+        DirectBaseCandidateFactory candidateFactory)
     {
         _constructorSelector = constructorSelector;
         _instanceStateCreator = instanceStateCreator;
         _propertyFlowMatcher = propertyFlowMatcher;
+        _candidateFactory = candidateFactory;
     }
 
     public void Apply(Type type, IReadOnlyList<ParameterMapping> derivedMappings)
@@ -63,9 +66,7 @@ internal sealed class DirectBaseFlowAnalyzer
             derivedMapping.DirectBaseMappings = candidates;
             if (candidates.Count > 0)
             {
-                derivedMapping.DirectBaseOutcome = ParameterInferenceOutcome.Ambiguous;
-                derivedMapping.DirectBaseDetail =
-                    "Property correlation cannot distinguish a direct-base argument from a derived-constructor write.";
+                MarkCorrelated(derivedMapping, candidates);
             }
         }
     }
@@ -75,34 +76,26 @@ internal sealed class DirectBaseFlowAnalyzer
         IReadOnlyList<ParameterMapping> baseMappings)
     {
         return baseMappings
-            .Select(baseMapping => CreateMapping(derivedMapping, baseMapping))
+            .Select(baseMapping => _candidateFactory.Create(derivedMapping, baseMapping))
             .Where(mapping => mapping is not null)
             .Cast<DirectBaseParameterMapping>()
             .OrderBy(mapping => mapping.ParameterIndex)
             .ToArray();
     }
 
-    private DirectBaseParameterMapping? CreateMapping(
+    private void MarkCorrelated(
         ParameterMapping derivedMapping,
-        ParameterMapping baseMapping)
+        IReadOnlyList<DirectBaseParameterMapping> candidates)
     {
-        var correlatedProperty = baseMapping.PropertyMappings
-            .FirstOrDefault(baseProperty => derivedMapping.PropertyMappings.Any(
-                derivedProperty => IsSameProperty(derivedProperty, baseProperty)));
-        if (correlatedProperty is null)
+        if (candidates.Any(candidate => candidate.Outcome == ParameterInferenceOutcome.Inferred))
         {
-            return null;
+            derivedMapping.DirectBaseOutcome = ParameterInferenceOutcome.Inferred;
+            return;
         }
 
-        return new DirectBaseParameterMapping
-        {
-            ParameterIndex = baseMapping.Parameter.Position,
-            ParameterName = baseMapping.Parameter.Name,
-            CorrelatedProperty = correlatedProperty.Property,
-            Outcome = ParameterInferenceOutcome.Ambiguous,
-            Confidence = FlowMappingConfidence.Heuristic,
-            Provenance = FlowMappingProvenance.DirectBasePropertyCorrelation
-        };
+        derivedMapping.DirectBaseOutcome = ParameterInferenceOutcome.Ambiguous;
+        derivedMapping.DirectBaseDetail =
+            "Property correlation cannot distinguish a direct-base argument from a derived-constructor write.";
     }
 
     private void MarkAmbiguousOverload(
@@ -126,12 +119,6 @@ internal sealed class DirectBaseFlowAnalyzer
             derivedMapping.DirectBaseOutcome = ParameterInferenceOutcome.InstantiationFailed;
             derivedMapping.DirectBaseDetail = detail;
         }
-    }
-
-    private bool IsSameProperty(PropertyFlowMapping first, PropertyFlowMapping second)
-    {
-        return first.Property.DeclaringType == second.Property.DeclaringType &&
-            first.Property.Name == second.Property.Name;
     }
 
     private Type? GetDirectBaseType(Type type)

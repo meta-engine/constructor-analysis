@@ -45,9 +45,9 @@ foreach (var parameter in analysis!.ParameterMappings)
 ```
 
 The console playground renders those same layers explicitly: the parameter outcome,
-each property's confidence and provenance, and any separate direct-base outcome and
-candidate. An exact property mapping is not downgraded when direct-base attribution is
-ambiguous.
+each property's confidence and provenance, and any separate direct-base outcome with
+its inferred base parameter or heuristic candidate. An exact property mapping is never
+downgraded by the direct-base verdict.
 
 `Analyze(type)` selects the instance constructor with the most parameters, including
 non-public constructors; a metadata-token tie-break makes equal-sized choices
@@ -107,7 +107,7 @@ Boolean flow is intentionally ambiguous even for a single Boolean parameter: one
 The same principle applies when a finite or narrow value domain cannot provide enough
 non-default distinct values. These are typed results, not silent fallback behavior.
 
-## Direct-base candidates
+## Direct-base attribution
 
 The analyzer also examines the immediate `BaseType` only when it has exactly one
 accessible constructor in total. Parameterless constructors participate in that count;
@@ -117,17 +117,28 @@ and base observations by the identity of the reflected property (declaring type 
 property name).
 
 Each `DirectBaseParameterMapping` exposes the candidate base parameter's ordered
-`ParameterIndex`, optional `ParameterName`, correlated property, `Heuristic`
-confidence, and `DirectBasePropertyCorrelation` provenance. Candidates are returned
-in base-parameter order, so same-typed swapped arguments do not depend on reflection
-property order.
+`ParameterIndex`, optional `ParameterName`, correlated property, outcome, confidence,
+and provenance. Candidates are returned in base-parameter order, so same-typed swapped
+arguments do not depend on reflection property order.
 
-These records are possible correlations, not confirmed `base(...)` call flow. A write
-performed locally by the derived constructor can produce the same observation. When
-the direct base exposes multiple callable overloads, the analyzer reports an ambiguous
-direct-base outcome rather than choosing one. For these reasons candidate records use
-the `Ambiguous` outcome, and the compatibility property `IsPassedToBase` remains false
-unless a future strategy can establish an inferred result.
+A property correlation alone cannot distinguish a `base(...)` argument from a write
+performed locally by the derived constructor, so the default verdict is a candidate
+with the `Ambiguous` outcome, `Heuristic` confidence, and
+`DirectBasePropertyCorrelation` provenance.
+
+One structural fact upgrades that verdict. When the correlated base property is a
+get-only auto-property, reflection shows no set accessor and a private `initonly`
+compiler-generated backing field. Verifiable code can write that field only inside a
+constructor of the declaring type, so a derived constructor cannot have produced the
+observation itself. If both the derived and the base observation of that property are
+exact, the mapping is reported with the `Inferred` outcome, `Exact` confidence, and
+`ReadOnlyBaseSentinel` provenance, the parameter's `DirectBaseOutcome` becomes
+`Inferred`, and `IsPassedToBase` is true. Properties with a setter, an `init` accessor
+(callable from derived constructors), or a getter over a protected field keep the
+heuristic candidate, because the derived constructor could have written them.
+
+When the direct base exposes multiple callable overloads, the analyzer reports an
+ambiguous direct-base outcome rather than choosing one.
 
 Only the direct base is examined. The analyzer does not recurse through multi-level
 inheritance, reconstruct constructor call syntax, resolve overloaded base calls, or
@@ -135,13 +146,12 @@ disambiguate property shadowing and derived writes.
 
 ## Executable regression evidence
 
-The xUnit suite contains 28 executable cases: 23 `[Fact]` cases across
-[`ConstructorFlowAnalyzerTests.cs`](tests/ConstructorAnalysis.Tests/ConstructorFlowAnalyzerTests.cs)
+The xUnit suite contains 32 executable cases: 25 `[Fact]` cases across
+[`ConstructorFlowAnalyzerTests.cs`](tests/ConstructorAnalysis.Tests/ConstructorFlowAnalyzerTests.cs),
+[`DirectBaseFlowAnalyzerTests.cs`](tests/ConstructorAnalysis.Tests/DirectBaseFlowAnalyzerTests.cs),
 and
 [`DemoConsoleOutputTests.cs`](tests/ConstructorAnalysis.Tests/DemoConsoleOutputTests.cs),
-plus five typed rows in the `[Theory]` from
-[`ScalarSentinelFactoryTests.cs`](tests/ConstructorAnalysis.Tests/ScalarSentinelFactoryTests.cs).
-The exact scenarios are:
+plus seven typed `[Theory]` rows. The exact scenarios are:
 
 - exact renamed and one-to-many mappings:
   `MapsExactAndRenamedValues`, `MapsOneParameterToMultipleProperties`;
@@ -157,16 +167,19 @@ The exact scenarios are:
   `SupportsEnumAndNullableSentinels`,
   `ReportsCustomStructAsUnsupportedWithoutDefaultMatch`,
   `ReportsUnconstructableReferenceSentinelAsUnsupportedWithoutThrowing`;
-- direct-base boundaries:
+- direct-base verdicts:
+  `InfersForwardingIntoReadOnlyBaseProperty`,
   `MapsSwappedSameTypeArgumentsToOrderedDirectBaseParameters`,
   `ReportsOverloadedDirectBaseAsAmbiguousWithoutChoosingAnOverload`,
-  `ReportsDerivedWriteCorrelationAsAHeuristicCandidate`;
+  `ReportsDerivedWriteCorrelationAsAHeuristicCandidate`, and the `init`-accessor and
+  protected-field rows of `KeepsWritableBasePropertyCorrelationHeuristic`;
 - selection and repeatability:
   `ReturnsNullWhenTypeHasNoConstructor`, `SelectsRichestConstructor`,
   `RepeatedRunsHaveDeterministicResults`;
 - console transcript locked to the article:
   `UserTranscriptExposesParameterPropertyAndDirectBaseOutcomes`,
-  `EmployeeTranscriptReportsRenamedRoleLandingAndBaseCandidate`,
+  `EmployeeTranscriptReportsRenamedRoleLandingAndInferredBaseParameter`,
+  `WritableBaseTranscriptKeepsTheCandidateMarker`,
   `NonInferredParameterTranscriptReportsOutcomeAndDetail`,
   `UnmatchedAndUnsupportedTranscriptsReportTheirTypedOutcomes`,
   `InstantiationFailureTranscriptReportsParameterAndDirectBaseDetails`,
@@ -193,8 +206,10 @@ Release build with warnings treated as errors, and runs the suite without rebuil
 - Only public readable, non-indexed instance properties are observed. Field writes and
   private-only state are outside the reference's scope.
 - Runtime equality cannot prove semantic intent. Exact identity is stronger evidence
-  than containment or direct-base correlation, but it is still an observation from one
-  generated input vector.
+  than containment or heuristic direct-base correlation, but it is still an observation
+  from one generated input vector. The read-only base verdict adds a structural fact to
+  two exact observations; it assumes verifiable code, since reflection or unverifiable
+  IL can still write an `initonly` field.
 - The implementation is a teaching/reference artifact, not a production compatibility
   contract for MetaEngine or its hosted services.
 

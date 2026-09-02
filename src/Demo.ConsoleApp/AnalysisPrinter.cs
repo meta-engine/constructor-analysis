@@ -105,8 +105,11 @@ public static class AnalysisPrinter
                 var declaringClass = baseCandidate.CorrelatedProperty.DeclaringType?.Name ??
                     throw new InvalidOperationException(
                         $"Property '{baseCandidate.CorrelatedProperty.Name}' has no declaring type.");
+                var label = baseCandidate.Outcome == ParameterInferenceOutcome.Inferred
+                    ? "→ Base parameter"
+                    : "? Candidate parameter";
                 writer.WriteLine(
-                    $"      ? Candidate parameter [{baseCandidate.ParameterIndex}] " +
+                    $"      {label} [{baseCandidate.ParameterIndex}] " +
                     $"{baseCandidate.ParameterName} via {declaringClass}.{baseCandidate.CorrelatedProperty.Name} " +
                     $"(Outcome: {baseCandidate.Outcome}; Confidence: {baseCandidate.Confidence}; " +
                     $"Provenance: {baseCandidate.Provenance})");

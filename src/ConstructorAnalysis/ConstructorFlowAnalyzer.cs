@@ -21,7 +21,8 @@ public sealed class ConstructorFlowAnalyzer
         _directBaseFlowAnalyzer = new DirectBaseFlowAnalyzer(
             _constructorSelector,
             _instanceStateCreator,
-            _propertyFlowMatcher);
+            _propertyFlowMatcher,
+            new DirectBaseCandidateFactory(new ReadOnlyAutoPropertyDetector()));
     }
 
     internal ConstructorFlowAnalyzer(
