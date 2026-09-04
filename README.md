@@ -27,10 +27,14 @@ dotnet test constructor-analysis.sln --configuration Release --no-build
 dotnet run --project src/Demo.ConsoleApp --configuration Release --no-build
 ```
 
-The public entry point is `ConstructorFlowAnalyzer`:
+The public entry point is `ConstructorFlowAnalyzer`. `User` is the type the
+companion article and `src/Demo.ConsoleApp/Examples` already ship:
 
 ```csharp
-var analysis = new ConstructorFlowAnalyzer().Analyze(typeof(Customer));
+using ConstructorAnalysis;
+using Demo.ConsoleApp.Examples;
+
+var analysis = new ConstructorFlowAnalyzer().Analyze(typeof(User));
 
 foreach (var parameter in analysis!.ParameterMappings)
 {
