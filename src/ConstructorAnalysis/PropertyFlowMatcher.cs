@@ -1,25 +1,31 @@
-using System.Reflection;
 using ConstructorAnalysis.Models;
 
 namespace ConstructorAnalysis;
 
 internal sealed class PropertyFlowMatcher
 {
+    private readonly PropertyStateReader _propertyStateReader;
+
+    public PropertyFlowMatcher(PropertyStateReader propertyStateReader)
+    {
+        _propertyStateReader = propertyStateReader;
+    }
+
     public IReadOnlyList<ParameterMapping> Match(Type type, InstanceStateResult state)
     {
-        var propertyValues = state.InstanceValue is null
-            ? Array.Empty<PropertyValue>()
-            : ReadPropertyValues(type, state.InstanceValue);
+        var propertyState = state.InstanceValue is null
+            ? new PropertyStateResult()
+            : _propertyStateReader.Read(type, state.InstanceValue);
 
         return state.Arguments
-            .Select(argument => MatchArgument(argument, state.Failure, propertyValues))
+            .Select(argument => MatchArgument(argument, state.Failure, propertyState))
             .ToArray();
     }
 
     private ParameterMapping MatchArgument(
         SentinelArgument argument,
         InstanceCreationFailure? failure,
-        IReadOnlyList<PropertyValue> propertyValues)
+        PropertyStateResult propertyState)
     {
         if (argument.Status != SentinelGenerationStatus.Supported)
         {
@@ -36,7 +42,17 @@ internal sealed class PropertyFlowMatcher
             };
         }
 
-        var exactMappings = propertyValues
+        if (propertyState.Failure is not null)
+        {
+            return new ParameterMapping
+            {
+                Parameter = argument.Parameter,
+                Outcome = ParameterInferenceOutcome.InspectionFailed,
+                Detail = propertyState.Failure
+            };
+        }
+
+        var exactMappings = propertyState.Values
             .Where(property => IsExactMatch(argument, property))
             .Select(property => new PropertyFlowMapping
             {
@@ -51,7 +67,7 @@ internal sealed class PropertyFlowMatcher
             return Inferred(argument, exactMappings);
         }
 
-        var transformedMappings = FindTransformedStringMappings(argument, propertyValues);
+        var transformedMappings = FindTransformedStringMappings(argument, propertyState.Values);
         return transformedMappings.Count > 0
             ? Inferred(argument, transformedMappings)
             : new ParameterMapping
@@ -88,17 +104,6 @@ internal sealed class PropertyFlowMatcher
         };
     }
 
-    private IReadOnlyList<PropertyValue> ReadPropertyValues(Type type, object instance)
-    {
-        return type
-            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(property => property.GetMethod is not null && property.GetIndexParameters().Length == 0)
-            .OrderBy(property => property.DeclaringType?.FullName, StringComparer.Ordinal)
-            .ThenBy(property => property.MetadataToken)
-            .Select(property => new PropertyValue(property, property.GetValue(instance)))
-            .ToArray();
-    }
-
     private bool IsExactMatch(SentinelArgument argument, PropertyValue property)
     {
         if (argument.Value is null || property.Value is null)
@@ -133,6 +138,4 @@ internal sealed class PropertyFlowMatcher
             })
             .ToArray();
     }
-
-    private sealed record PropertyValue(PropertyInfo Property, object? Value);
 }
