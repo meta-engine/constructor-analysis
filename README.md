@@ -1,34 +1,33 @@
-# Runtime Constructor Flow Analysis
+# Runtime Constructor Property Matching
 
-This repository is a compact standalone reference for discovering how constructor
-arguments appear in public instance properties. It places distinctive runtime
-sentinels in the argument vector, invokes a constructor, and inspects the resulting
-object. That belongs to the established family of sentinel-based dynamic taint and
-data-flow techniques; the interesting application here is constructor-mapping
-metadata, not a claim of a new analysis theorem or algorithm.
+Reflection describes a constructor's parameters. It does not tell a code generator
+which public properties retain those arguments. This small C# reference explores
+that missing connection: supply distinctive values, construct an object, then match
+its public property values to the supplied arguments.
 
-The canonical repository is `meta-engine/constructor-analysis`. It is currently
-private while the companion MetaEngine website articles await owner approval. This
-code is deliberately smaller than the production system: MetaEngine adds configuration
-metadata, dependency injection, target-parameter normalization, semantic constructor
-models, and renderer integration. Those bounded distinctions explain the reference's
-scope without claiming implementation parity, compatibility, or shared internals.
+For DTO-shaped types, those observations can help associate a constructor parameter
+with property metadata even when their names differ or one argument reaches several
+properties. The companion article, [Runtime Constructor Analysis](https://www.metaengine.eu/articles/runtime-constructor-analysis),
+walks through the example and an interactive visualization.
+
+This is a standalone playground for that technique. MetaEngine uses related
+observations within a larger code-generation pipeline; this repository does not
+reproduce its production implementation or compatibility contract.
 
 ## Run it
 
-Install the [.NET 10 SDK](https://dotnet.microsoft.com/download). The console
-app is the playground: clone, run, then change the examples under
-`src/Demo.ConsoleApp/Examples`.
+Install the [.NET 10 SDK](https://dotnet.microsoft.com/download), then:
 
 ```bash
-dotnet restore constructor-analysis.sln
-dotnet build constructor-analysis.sln --configuration Release --no-restore --warnaserror
-dotnet test constructor-analysis.sln --configuration Release --no-build
-dotnet run --project src/Demo.ConsoleApp --configuration Release --no-build
+git clone https://github.com/meta-engine/constructor-analysis.git
+cd constructor-analysis
+dotnet run --project src/Demo.ConsoleApp
 ```
 
-The public entry point is `ConstructorFlowAnalyzer`. `User` is the type the
-companion article and `src/Demo.ConsoleApp/Examples` already ship:
+The app prints three examples. Change the types under
+[`src/Demo.ConsoleApp/Examples`](src/Demo.ConsoleApp/Examples) and run it again.
+
+The entry point is `ConstructorFlowAnalyzer`. For the article's `User` type:
 
 ```csharp
 using ConstructorAnalysis;
@@ -48,184 +47,121 @@ foreach (var parameter in analysis!.ParameterMappings)
 }
 ```
 
-The console playground renders those same layers explicitly: the parameter outcome,
-each property's confidence and provenance, and any separate direct-base outcome with
-its inferred base parameter or heuristic candidate. An exact property mapping is never
-downgraded by the direct-base verdict.
+Here `userName` matches both `User.Username` and `BaseEntity.Name`. That is the
+useful result for property-oriented code generation: one parameter, two observed
+property destinations.
 
-`Analyze(type)` selects the instance constructor with the most parameters, including
-non-public constructors; a metadata-token tie-break makes equal-sized choices
-deterministic. It does not combine results from every overload. Call
-`AnalyzeConstructor(type, constructor)` when a particular `ConstructorInfo` should be
-examined instead.
+## How matching works
 
-## How the probe works
+The analyzer creates the whole argument vector before invoking the selected
+constructor once. It then reads public instance properties with public getters,
+excluding indexers, and compares their values with the supplied sentinels.
 
-For the selected constructor, the analyzer:
+- Strings use ordinal equality; value types use value equality.
+- Class, array, and interface sentinels use reference identity. Concrete classes use
+  uninitialized instances, while interfaces use a `DispatchProxy`.
+- Nullable parameters use the underlying value strategy. Unsupported shapes and
+  colliding or exhausted sentinel domains receive explicit outcomes. `null` is never
+  accepted as property-matching evidence.
+- If a string parameter has no exact property matches, complete-sentinel containment
+  with ordinal case-insensitive comparison can produce a `Heuristic` match with
+  `TransformedStringContainment` provenance. Case changes and surrounding text can
+  match this way; truncation, hashing, and other transformations that discard the
+  sentinel cannot.
 
-1. creates a sentinel for every parameter before invoking anything;
-2. marks sentinel shapes that are unsupported, ambiguous, exhausted, or equal to
-   another argument so they cannot produce an inferred mapping;
-3. invokes the constructor once with the complete attempted all-distinct argument
-   vector; and
-4. reads public, non-indexed instance properties and correlates their values with the
-   sentinels.
+`Exact` with `ExactSentinel` provenance means **the observed property value matched
+the supplied sentinel exactly**. It does not establish that every input follows the
+same path, or distinguish every assignment from a coincidental constant. Numeric
+sentinels are deterministic and enum sentinels come from declared members: a
+constant `int.MaxValue` or the selected enum member can match an ignored parameter.
+Use the observations in the context of the type being generated.
 
-This keeps selected-constructor invocation count constant instead of invoking once per
-parameter. It also avoids filling non-probed positions with `null`, which lets common
-null-guarded constructors run. The direct-base check described below may perform one
-additional probe of the base constructor.
-
-Exact string and value-type mappings use value equality. Class, array, and interface
-sentinels are assignable instances and are matched by reference identity: concrete
-classes use an uninitialized instance, while interfaces use a `DispatchProxy`.
-Nullable parameters use the underlying value strategy. Generated scalar and enum
-values avoid the default where the type's domain allows it. `null` is never accepted
-as flow evidence, and a collision between generated arguments makes both parameters
-ambiguous instead of guessing.
-
-Strings have one deliberately lower-confidence path. If strict ordinal equality finds
-nothing, a property containing the complete sentinel with ordinal case-insensitive
-comparison is reported with `Heuristic` confidence and
-`TransformedStringContainment` provenance. This can recognize case changes,
-surrounding concatenation, or other results that retain the complete sentinel but are
-not identical to it. A pure `Trim()` of the generated whitespace-free sentinel remains
-identical and therefore resolves through the exact path. Containment cannot establish
-exact flow, and transforms that remove, split, reorder, truncate, encode, or hash the
-sentinel remain unmatched.
+`Analyze(type)` chooses the instance constructor with the most parameters, including
+non-public constructors. A metadata-token tie-break makes equal-sized choices
+deterministic. Use `AnalyzeConstructor(type, constructor)` to select a particular
+constructor. A type with no discoverable instance constructor returns no analysis.
 
 ### Parameter outcomes
 
-Every parameter has an explicit `ParameterInferenceOutcome`:
-
 | Outcome | Meaning |
 | --- | --- |
-| `Inferred` | One or more exact or transformed-string property mappings were found. Inspect each mapping's confidence and provenance. |
-| `Unmatched` | A supported sentinel was passed successfully, but no readable property preserved it. |
-| `Ambiguous` | A unique conclusion is unsafe, for example for Boolean parameters, colliding values, an enum with too few non-default values, or an exhausted narrow scalar domain. |
-| `Unsupported` | The analyzer cannot create a safe assignable or collision-resistant sentinel for that shape, such as some abstract/delegate references or custom structs. |
-| `InstantiationFailed` | Constructor binding, access, support, or constructor execution failed. The detail includes the observed failure. |
+| `Inferred` | At least one exact or transformed-string property match was observed. Inspect each mapping's confidence and provenance. |
+| `Unmatched` | Construction and property inspection succeeded, but no readable property matched the supported sentinel. |
+| `Ambiguous` | The sentinel cannot distinguish this parameter safely, for example for booleans or colliding finite-domain values. |
+| `Unsupported` | The parameter shape has no supported sentinel strategy, such as custom structs and some abstract or delegate references. |
+| `InstantiationFailed` | Constructor binding or execution failed; the detail describes the failure. |
+| `InspectionFailed` | Construction succeeded, but a public getter could not be read. The detail identifies the property and failure; no partial property mappings are returned. |
 
-Boolean flow is intentionally ambiguous even for a single Boolean parameter: one
-`true`/`false` observation cannot distinguish an assignment from a constant property.
-The same principle applies when a finite or narrow value domain cannot provide enough
-non-default distinct values. These are typed results, not silent fallback behavior.
+A single boolean observation cannot distinguish an assignment from a constant, so
+boolean parameters are always ambiguous in this one-vector sample. Unsupported
+parameters keep their own outcome even if another stage fails.
 
-## Direct-base attribution
+## Optional direct-base metadata
 
-The analyzer also examines the immediate `BaseType` only when it has exactly one
-accessible constructor in total. Parameterless constructors participate in that count;
-if the sole accessible constructor is parameterless, direct-base probing is skipped.
-Otherwise, the analyzer probes that one constructor separately and correlates derived
-and base observations by the identity of the reflected property (declaring type plus
-property name).
+Property matching also sees inherited public properties. A separate probe can add
+an association with an immediate base-constructor parameter; this extra metadata
+does not change the original property match.
 
-Each `DirectBaseParameterMapping` exposes the candidate base parameter's ordered
-`ParameterIndex`, optional `ParameterName`, correlated property, outcome, confidence,
-and provenance. Candidates are returned in base-parameter order, so same-typed swapped
-arguments do not depend on reflection property order.
+The base probe runs only when the immediate base has exactly one constructor
+accessible to the derived type and that constructor has parameters. Correlating the
+same reflected property in the derived and base probes produces an ordered base
+parameter candidate. Multiple accessible base constructors produce an ambiguous
+base outcome instead of selecting an overload.
 
-A property correlation alone cannot distinguish a `base(...)` argument from a write
-performed locally by the derived constructor, so the default verdict is a candidate
-with the `Ambiguous` outcome, `Heuristic` confidence, and
-`DirectBasePropertyCorrelation` provenance.
+For simple assignment-based DTO constructors, a get-only auto-property provides
+useful supporting evidence: its private, compiler-generated `initonly` field rules
+out an ordinary write from a derived constructor. If both property observations
+are exact, the sample labels the base candidate `Inferred`, `Exact`, and
+`ReadOnlyBaseSentinel`. Writable properties keep the `Ambiguous`, `Heuristic`,
+`DirectBasePropertyCorrelation` labels.
 
-One structural fact upgrades that verdict. When the correlated base property is a
-get-only auto-property, reflection shows no set accessor and a private `initonly`
-compiler-generated backing field. Verifiable code can write that field only inside a
-constructor of the declaring type, so a derived constructor cannot have produced the
-observation itself. If both the derived and the base observation of that property are
-exact, the mapping is reported with the `Inferred` outcome, `Exact` confidence, and
-`ReadOnlyBaseSentinel` provenance, the parameter's `DirectBaseOutcome` becomes
-`Inferred`, and `IsPassedToBase` is true. Properties with a setter, an `init` accessor
-(callable from derived constructors), or a getter over a protected field keep the
-heuristic candidate, because the derived constructor could have written them.
+**The sample does not verify the simple-assignment precondition.** Read-only state
+alone does not establish which base parameter received the argument. A base
+constructor that chooses between its parameters may take different paths in the
+two probes and produce an incorrect inferred slot. Conditional or transformed
+constructor behavior, and constants that collide with sentinels, therefore limit
+this metadata. `ReadOnlyBaseSentinel` records the two observations and property
+shape; it is not a general proof of the constructor call's argument flow.
 
-When the direct base exposes multiple callable overloads, the analyzer reports an
-ambiguous direct-base outcome rather than choosing one.
+The analyzer examines one base level. It does not reconstruct constructor syntax,
+trace a complete inheritance chain, or resolve overloaded base calls. A failing
+base getter is reported separately as an `InspectionFailed` direct-base outcome,
+while a successful original property observation remains available.
 
-Only the direct base is examined. The analyzer does not recurse through multi-level
-inheritance, reconstruct constructor call syntax, resolve overloaded base calls, or
-disambiguate property shadowing and derived writes.
+## Boundaries
 
-## Executable regression evidence
+- Constructors **and property getters execute**, including their side effects.
+  Keep experiments on types whose execution is safe in the current environment.
+- Generated values can violate a type's validation rules or encounter missing
+  external state. Failures are reported; the sample does not retry with other
+  values.
+- Only properties with public getters are observed. Private state and field-only
+  assignments are outside the sample's scope, while computed getters are included.
+- Matching observes one generated input vector. It is useful metadata for known,
+  simple types, not a general static analysis or a guarantee of semantic intent.
+- The direct-base read-only check assumes ordinary verifiable code. Reflection or
+  unverifiable IL can write an `initonly` field.
 
-The xUnit suite contains 32 executable cases: 25 `[Fact]` cases across
-[`ConstructorFlowAnalyzerTests.cs`](tests/ConstructorAnalysis.Tests/ConstructorFlowAnalyzerTests.cs),
-[`DirectBaseFlowAnalyzerTests.cs`](tests/ConstructorAnalysis.Tests/DirectBaseFlowAnalyzerTests.cs),
-and
-[`DemoConsoleOutputTests.cs`](tests/ConstructorAnalysis.Tests/DemoConsoleOutputTests.cs),
-plus seven typed `[Theory]` rows. The exact scenarios are:
+## Build and check
 
-- exact renamed and one-to-many mappings:
-  `MapsExactAndRenamedValues`, `MapsOneParameterToMultipleProperties`;
-- one-invocation and reference sentinel behavior:
-  `UsesOneConstructorInvocationForNullGuardedParameters`,
-  `ReportsClassAndInterfaceSentinelsAsExact`;
-- transformed strings and explicit uncertainty:
-  `ReportsTransformedStringMatchesAsHeuristic`,
-  `ReportsBooleanCollisionAsAmbiguous`,
-  `DoesNotOverclaimOneAssignedBooleanSentinel`,
-  `DoesNotMistakeAnIgnoredBooleanForAConstantTrueProperty`;
-- supported and unsupported shapes:
-  `SupportsEnumAndNullableSentinels`,
-  `ReportsCustomStructAsUnsupportedWithoutDefaultMatch`,
-  `ReportsUnconstructableReferenceSentinelAsUnsupportedWithoutThrowing`;
-- direct-base verdicts:
-  `InfersForwardingIntoReadOnlyBaseProperty`,
-  `MapsSwappedSameTypeArgumentsToOrderedDirectBaseParameters`,
-  `ReportsOverloadedDirectBaseAsAmbiguousWithoutChoosingAnOverload`,
-  `ReportsDerivedWriteCorrelationAsAHeuristicCandidate`, and the `init`-accessor and
-  protected-field rows of `KeepsWritableBasePropertyCorrelationHeuristic`;
-- selection and repeatability:
-  `ReturnsNullWhenTypeHasNoConstructor`, `SelectsRichestConstructor`,
-  `RepeatedRunsHaveDeterministicResults`;
-- console transcript locked to the article:
-  `UserTranscriptExposesParameterPropertyAndDirectBaseOutcomes`,
-  `EmployeeTranscriptReportsRenamedRoleLandingAndInferredBaseParameter`,
-  `WritableBaseTranscriptKeepsTheCandidateMarker`,
-  `NonInferredParameterTranscriptReportsOutcomeAndDetail`,
-  `UnmatchedAndUnsupportedTranscriptsReportTheirTypedOutcomes`,
-  `InstantiationFailureTranscriptReportsParameterAndDirectBaseDetails`,
-  `CandidateLessDirectBaseAmbiguityReportsItsDetail`; and
-- narrow-domain exhaustion for `byte`, `sbyte`, `short`, `ushort`, and `char`:
-  five rows of `ExhaustedNarrowScalarDoesNotRemainSupported`.
+```bash
+dotnet restore constructor-analysis.sln
+dotnet build constructor-analysis.sln --configuration Release --no-restore --warnaserror
+dotnet test constructor-analysis.sln --configuration Release --no-build
+```
 
-The fixtures used by those tests live beside them in
-[`tests/ConstructorAnalysis.Tests`](tests/ConstructorAnalysis.Tests). GitHub Actions
-runs on pushes and pull requests to `main`; its
-[`ci.yml`](.github/workflows/ci.yml) restores the solution, performs a zero-warning
-Release build with warnings treated as errors, and runs the suite without rebuilding.
-
-## Residual limitations
-
-- Constructor code and side effects execute. Do not analyze untrusted types or types
-  whose construction is unsafe in the current environment.
-- A constructor can still reject generated values or require external state. Such
-  failures are reported, not bypassed.
-- Types with no discoverable instance constructor return no analysis. Abstract or open
-  generic targets can expose constructor metadata but fail at invocation, which is
-  reported as `InstantiationFailed`; abstract classes, delegates, some interfaces, and
-  custom structs may also lack a safe parameter-sentinel strategy.
-- Only public readable, non-indexed instance properties are observed. Field writes and
-  private-only state are outside the reference's scope.
-- Runtime equality cannot prove semantic intent. Exact identity is stronger evidence
-  than containment or heuristic direct-base correlation, but it is still an observation
-  from one generated input vector. The read-only base verdict adds a structural fact to
-  two exact observations; it assumes verifiable code, since reflection or unverifiable
-  IL can still write an `initonly` field.
-- The implementation is a teaching/reference artifact, not a production compatibility
-  contract for MetaEngine or its hosted services.
+The xUnit suite covers renamed and one-to-many mappings, reference sentinels,
+constructor selection, transformed strings, uncertain and unsupported inputs,
+constructor and getter failures, direct-base examples, and console transcripts.
+[GitHub Actions](.github/workflows/ci.yml) runs the same Release build and tests on
+pushes and pull requests to `main`.
 
 ## Repository map
 
-- [`src/ConstructorAnalysis`](src/ConstructorAnalysis) — analyzer and result models
+- [`src/ConstructorAnalysis`](src/ConstructorAnalysis) — matching logic and result models
 - [`src/Demo.ConsoleApp`](src/Demo.ConsoleApp) — three runnable examples
-- [`tests/ConstructorAnalysis.Tests`](tests/ConstructorAnalysis.Tests) — regression suite and fixtures
-- [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — restore/build/test workflow
+- [`tests/ConstructorAnalysis.Tests`](tests/ConstructorAnalysis.Tests) — regression tests and fixtures
 
 ## License
 
-This standalone repository is licensed under the MIT License. See
-[`LICENSE`](LICENSE). That license statement applies to this repository; it does not
-describe private MetaEngine implementations or hosted services.
+This standalone repository is licensed under the [MIT License](LICENSE).

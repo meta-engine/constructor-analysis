@@ -53,10 +53,11 @@ internal sealed class DirectBaseFlowAnalyzer
         var baseState = _instanceStateCreator.Execute(baseConstructor);
         var baseMappings = _propertyFlowMatcher.Match(baseType, baseState);
         var baseFailure = baseMappings.FirstOrDefault(
-            mapping => mapping.Outcome == ParameterInferenceOutcome.InstantiationFailed);
+            mapping => mapping.Outcome is ParameterInferenceOutcome.InstantiationFailed or
+                ParameterInferenceOutcome.InspectionFailed);
         if (baseFailure is not null)
         {
-            MarkBaseProbeFailure(derivedMappings, baseFailure.Detail);
+            MarkBaseProbeFailure(derivedMappings, baseFailure.Outcome, baseFailure.Detail);
             return;
         }
 
@@ -112,11 +113,12 @@ internal sealed class DirectBaseFlowAnalyzer
 
     private void MarkBaseProbeFailure(
         IReadOnlyList<ParameterMapping> derivedMappings,
+        ParameterInferenceOutcome outcome,
         string? detail)
     {
         foreach (var derivedMapping in derivedMappings)
         {
-            derivedMapping.DirectBaseOutcome = ParameterInferenceOutcome.InstantiationFailed;
+            derivedMapping.DirectBaseOutcome = outcome;
             derivedMapping.DirectBaseDetail = detail;
         }
     }

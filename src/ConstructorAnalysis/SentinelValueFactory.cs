@@ -107,7 +107,7 @@ internal sealed class SentinelValueFactory
         try
         {
             return Unsupported(
-                Activator.CreateInstance(type),
+                RuntimeHelpers.GetUninitializedObject(type),
                 $"User-defined struct '{type.Name}' has no collision-resistant sentinel strategy.");
         }
         catch (NotSupportedException)

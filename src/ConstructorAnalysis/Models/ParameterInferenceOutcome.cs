@@ -6,5 +6,6 @@ public enum ParameterInferenceOutcome
     Unmatched,
     Ambiguous,
     Unsupported,
-    InstantiationFailed
+    InstantiationFailed,
+    InspectionFailed
 }

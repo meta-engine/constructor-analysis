@@ -17,7 +17,7 @@ public sealed class ConstructorFlowAnalyzer
             new SentinelValueFactory(),
             new SentinelDistinctnessValidator());
         _instanceStateCreator = new InstanceStateCreator(valueGenerator);
-        _propertyFlowMatcher = new PropertyFlowMatcher();
+        _propertyFlowMatcher = new PropertyFlowMatcher(new PropertyStateReader());
         _directBaseFlowAnalyzer = new DirectBaseFlowAnalyzer(
             _constructorSelector,
             _instanceStateCreator,
